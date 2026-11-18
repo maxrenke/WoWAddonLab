@@ -17,7 +17,8 @@ public sealed record CommandLineOptions(
     string? StartupReportPath = null,
     string? StartupJsonPath = null,
     bool ExitWhenReady = false,
-    string? GameType = null)
+    string? GameType = null,
+    bool WriteBackSavedVariables = false)
 {
     public static bool WantsStartupReport(string[] arguments) =>
         arguments.Any(value => value is "--startup-report" or "--startup-json");
@@ -41,6 +42,7 @@ public sealed record CommandLineOptions(
         string? startupJsonPath = null;
         var exitWhenReady = false;
         string? gameType = null;
+        var writeBackSavedVariables = false;
 
         for (var index = 0; index < arguments.Length; index++)
         {
@@ -59,6 +61,9 @@ public sealed record CommandLineOptions(
                     break;
                 case "--profile" when index + 1 < arguments.Length:
                     profile = arguments[++index];
+                    break;
+                case "--write-back":
+                    writeBackSavedVariables = true;
                     break;
                 case "--import-saved":
                     importSavedVariables = true;
@@ -122,6 +127,7 @@ public sealed record CommandLineOptions(
             startupReportPath,
             startupJsonPath,
             exitWhenReady,
-            gameType);
+            gameType,
+            writeBackSavedVariables);
     }
 }

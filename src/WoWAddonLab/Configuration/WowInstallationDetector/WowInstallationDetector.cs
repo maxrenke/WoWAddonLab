@@ -20,7 +20,8 @@ public static class WowInstallationDetector
         new("World of Warcraft Classic Beta", "_classic_beta_", "WoWClassicB.exe", "wow_classic_beta"),
         new("World of Warcraft Alpha", "_alpha_", "WoWB.exe", "wowdev"),
         new("World of Warcraft Classic Alpha", "_classic_alpha_", "WowClassicT.exe", "wow_classic_alpha"),
-        new("World of Warcraft Submission", "_submission_", "WoWT.exe", "wowz")
+        new("World of Warcraft Submission", "_submission_", "WoWT.exe", "wowz"),
+        new("World of Warcraft Forever", "_forever_", "Wow.exe", "wowf")
     ];
 
     public static IReadOnlyList<WowInstallation> Detect()

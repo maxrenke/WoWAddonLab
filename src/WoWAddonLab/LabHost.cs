@@ -202,6 +202,7 @@ public sealed class LabHost : IDisposable
         _viewportCapture.Dispose();
         _automation?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _session?.Dispose();
+        WriteBackSavedVariablesOnClose();
         DisposeGraphics();
         _window.Dispose();
     }
@@ -1622,8 +1623,16 @@ public sealed class LabHost : IDisposable
         {
             if (ImGui.Button("Import copies from WoW"))
                 ImportSavedVariablesProfile();
-            ImGui.SameLine();
-            ImGui.TextDisabled("WoW's WTF folder is never written.");
+            var productSettings = CurrentProductSettings();
+            var writeBack = productSettings.WriteBackSavedVariables;
+            if (ImGui.Checkbox("Sync with WoW (write back on close)", ref writeBack))
+            {
+                productSettings.WriteBackSavedVariables = writeBack;
+                PersistSettings();
+            }
+            ImGui.TextDisabled(writeBack
+                ? "Newer WoW data is imported at startup; emulator data is written to WoW's WTF folder on close (backup: .addonlab.bak). Skipped while WoW runs."
+                : "WoW's WTF folder is never written.");
         }
         else
         {
@@ -2658,7 +2667,26 @@ public sealed class LabHost : IDisposable
             _savedVariableProfiles.ToList().FindIndex(value =>
                 value.Id.Equals(requestedProfile, StringComparison.OrdinalIgnoreCase)));
         productSettings.ProfileId = _savedVariableProfiles[_selectedProfile].Id;
+        if (_options.WriteBackSavedVariables)
+            productSettings.WriteBackSavedVariables = true;
         PersistSettings();
+        if (productSettings.WriteBackSavedVariables)
+        {
+            try
+            {
+                var synced = SavedVariablesProfiles.ImportCopies(
+                    _savedVariableProfiles[_selectedProfile],
+                    SelectedAddonsForProfile(),
+                    CurrentSavedVariablesDirectory(),
+                    onlyNewer: true);
+                if (synced > 0)
+                    _profileMessage = $"Synced {synced} newer addon data file{(synced == 1 ? string.Empty : "s")} from WoW.";
+            }
+            catch (Exception exception)
+            {
+                _profileMessage = $"Sync from WoW failed: {exception.Message}";
+            }
+        }
         if (loadAddons)
             Reload();
     }
@@ -2783,12 +2811,7 @@ public sealed class LabHost : IDisposable
         try
         {
             var profile = _savedVariableProfiles[_selectedProfile];
-            var selected = InstalledAddonCatalog.ResolveLoadOrder(
-                _addonCatalog,
-                CurrentProductSettings().EnabledAddons,
-                minimumInterfaceVersion: WowBuildInfo.FromVersion(
-                    _installations[_selectedInstallation].Version)
-                    .InterfaceVersion);
+            var selected = SelectedAddonsForProfile();
             var imported = SavedVariablesProfiles.ImportCopies(
                 profile,
                 selected,
@@ -2802,6 +2825,33 @@ public sealed class LabHost : IDisposable
         {
             _profileMessage = $"Import failed: {exception.Message}";
             _session!.Log.Error("saved-variables", exception.ToString());
+        }
+    }
+
+    private IReadOnlyList<InstalledAddon> SelectedAddonsForProfile() =>
+        InstalledAddonCatalog.ResolveLoadOrder(
+            _addonCatalog,
+            CurrentProductSettings().EnabledAddons,
+            minimumInterfaceVersion: WowBuildInfo.FromVersion(
+                _installations[_selectedInstallation].Version)
+                .InterfaceVersion);
+
+    private void WriteBackSavedVariablesOnClose()
+    {
+        if (_installations.Count == 0 || !CurrentProductSettings().WriteBackSavedVariables)
+            return;
+        try
+        {
+            foreach (var message in SavedVariablesProfiles.WriteBack(
+                         _installations[_selectedInstallation],
+                         _savedVariableProfiles[_selectedProfile],
+                         SelectedAddonsForProfile(),
+                         CurrentSavedVariablesDirectory()))
+                Console.WriteLine(message);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"SavedVariables write-back failed: {exception.Message}");
         }
     }
 

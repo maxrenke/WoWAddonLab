@@ -2004,6 +2004,54 @@ internal static class LuaBindings
             case "HasSecretValues":
                 lua_pushboolean(state, value.ContainsSecretValues ? 1 : 0);
                 return 1;
+            case "AddSecretAspect":
+                if (!TryReadSecretAspectMask(state, 2, out var addedSecretAspect))
+                    return luaL_error(state, "Usage: self:AddSecretAspect(aspect)");
+                value.SecretAspectMask |= addedSecretAspect;
+                return 0;
+            case "AddForbiddenAspects":
+                if (!TryReadSecretAspectMask(state, 2, out var forbiddenAspects))
+                    return luaL_error(state, "Usage: self:AddForbiddenAspects(aspects)");
+                value.ForbiddenAspectMask |= forbiddenAspects;
+                return 0;
+            case "GetForbiddenAspects":
+            case "GetInheritableForbiddenAspects":
+                lua_pushinteger(state, value.ForbiddenAspectMask);
+                return 1;
+            case "HasAnyForbiddenAspects":
+                lua_pushboolean(
+                    state,
+                    TryReadSecretAspectMask(state, 2, out var queriedForbidden)
+                        ? (value.ForbiddenAspectMask & queriedForbidden) != 0 ? 1 : 0
+                        : value.ForbiddenAspectMask != 0 ? 1 : 0);
+                return 1;
+            case "AddAccessRestrictions":
+                if (!TryReadSecretAspectMask(state, 2, out var restrictions))
+                    return luaL_error(state, "Usage: self:AddAccessRestrictions(restrictions)");
+                value.AccessRestrictionMask |= restrictions;
+                return 0;
+            case "GetAccessRestrictions":
+                lua_pushinteger(state, value.AccessRestrictionMask);
+                return 1;
+            case "HasAnyAccessRestrictions":
+                lua_pushboolean(
+                    state,
+                    TryReadSecretAspectMask(state, 2, out var queriedRestrictions)
+                        ? (value.AccessRestrictionMask & queriedRestrictions) != 0 ? 1 : 0
+                        : value.AccessRestrictionMask != 0 ? 1 : 0);
+                return 1;
+            case "HasAccessConstraints":
+                lua_pushboolean(
+                    state,
+                    (value.AccessRestrictionMask | value.ForbiddenAspectMask) != 0 ? 1 : 0);
+                return 1;
+            case "CanBeAccessedInContext":
+                // The emulator runs every caller in one trusted context.
+                lua_pushboolean(state, 1);
+                return 1;
+            case "GetObjectTable":
+                runtime.PushObject(value);
+                return 1;
             case "IsPreventingSecretValues":
                 lua_pushboolean(state, value.PreventsSecretValues ? 1 : 0);
                 return 1;

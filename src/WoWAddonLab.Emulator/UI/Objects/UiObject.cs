@@ -65,6 +65,8 @@ public sealed class UiObject
     public bool CollapsesLayout { get; set; }
     public uint SecretAspectMask { get; set; }
     public uint SecondarySecretAspectMask { get; set; }
+    public uint ForbiddenAspectMask { get; set; }
+    public uint AccessRestrictionMask { get; set; }
     public bool ContainsSecretValues { get; set; }
     public bool PreventsSecretValues { get; set; }
     public bool ObjectLoaded { get; set; } = true;

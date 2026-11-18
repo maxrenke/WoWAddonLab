@@ -18,6 +18,9 @@ internal static class WowWidgetApi
 
     private static readonly string[] ScriptObject =
     [
+        "AddAccessRestrictions", "AddForbiddenAspects", "AddSecretAspect", "CanBeAccessedInContext",
+        "GetAccessRestrictions", "GetForbiddenAspects", "GetInheritableForbiddenAspects", "GetObjectTable",
+        "HasAccessConstraints", "HasAnyAccessRestrictions", "HasAnyForbiddenAspects",
         "GetName", "GetObjectType", "HasAnySecretAspect", "HasSecretAspect",
         "HasSecretValues", "IsForbidden", "IsObjectType", "IsPreventingSecretValues",
         "SetForbidden", "SetToDefaults"
@@ -25,6 +28,9 @@ internal static class WowWidgetApi
 
     private static readonly string[] ScriptRegion =
     [
+        "AddAccessRestrictions", "AddForbiddenAspects", "AddSecretAspect", "CanBeAccessedInContext",
+        "GetAccessRestrictions", "GetForbiddenAspects", "GetInheritableForbiddenAspects", "GetObjectTable",
+        "HasAccessConstraints", "HasAnyAccessRestrictions", "HasAnyForbiddenAspects",
         "GetName", "GetObjectType", "HasAnySecretAspect", "HasSecretAspect",
         "HasSecretValues", "IsForbidden", "IsObjectType", "IsPreventingSecretValues",
         "SetForbidden", "SetToDefaults",
@@ -33,6 +39,9 @@ internal static class WowWidgetApi
 
     private static readonly string[] Region =
     [
+        "AddAccessRestrictions", "AddForbiddenAspects", "AddSecretAspect", "CanBeAccessedInContext",
+        "GetAccessRestrictions", "GetForbiddenAspects", "GetInheritableForbiddenAspects", "GetObjectTable",
+        "HasAccessConstraints", "HasAnyAccessRestrictions", "HasAnyForbiddenAspects",
         "AdjustPointsOffset", "CanChangeProtectedState", "ClearAllPoints", "ClearParentKey",
         "ClearPoint", "ClearPointsOffset", "ClearScripts", "CollapsesLayout",
         "CreateAnimationGroup", "GetAnimationGroups", "GetAlpha", "GetBottom", "GetCenter", "GetDebugName",

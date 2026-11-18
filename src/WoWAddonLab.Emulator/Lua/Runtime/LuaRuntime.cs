@@ -4136,7 +4136,8 @@ public sealed class LuaRuntime : IDisposable
                 output.Append(lua_tonumber(State, absolute).ToString("R", System.Globalization.CultureInfo.InvariantCulture));
                 break;
             case LUA_TSTRING:
-                output.Append('"').Append(EscapeLua(lua_tostring(State, absolute) ?? string.Empty)).Append('"');
+                // Raw bytes: lua_tostring decodes with the ANSI code page and mangled UTF-8 on every save
+                AppendLuaStringLiteral(output, LuaStringInterop.RequiredBytes(State, absolute, "string expected"));
                 break;
             case LUA_TTABLE:
             {
@@ -4394,6 +4395,48 @@ public sealed class LuaRuntime : IDisposable
     }
 
     private sealed record PendingGlobalMixin(string Name, int? EnvironmentReference);
+
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    private static void AppendLuaStringLiteral(StringBuilder output, byte[] bytes)
+    {
+        string? text;
+        try { text = StrictUtf8.GetString(bytes); }
+        catch (DecoderFallbackException) { text = null; }
+        output.Append('"');
+        if (text is not null)
+        {
+            // Valid UTF-8 is kept as text; the file is written as UTF-8, so the bytes come back unchanged
+            foreach (var character in text)
+            {
+                switch (character)
+                {
+                    case '\\': output.Append(@"\\"); break;
+                    case '"': output.Append("\\\""); break;
+                    case '\n': output.Append(@"\n"); break;
+                    case '\r': output.Append(@"\r"); break;
+                    case '\t': output.Append(@"\t"); break;
+                    default:
+                        if (character < 32 || character == 127)
+                            output.Append('\\').Append(((int)character).ToString("000"));
+                        else
+                            output.Append(character);
+                        break;
+                }
+            }
+        }
+        else
+        {
+            foreach (var value in bytes)
+            {
+                if (value is >= 32 and < 127 && value != (byte)'\\' && value != (byte)'"')
+                    output.Append((char)value);
+                else
+                    output.Append('\\').Append(value.ToString("000"));
+            }
+        }
+        output.Append('"');
+    }
 
     private static string EscapeLua(string value) => value
         .Replace("\\", "\\\\", StringComparison.Ordinal)

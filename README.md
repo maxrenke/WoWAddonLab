@@ -37,6 +37,24 @@ dotnet run --project src\WoWAddonLab --headless --product wow --enable MyAddonNa
 `--product` accepts a product code such as `wow`, `wowdev2`, a product folder such as `_retail_`, or a full product path. `--enable` is repeatable or comma-separated.
 Use `--profile account:MYACCOUNTNAME --import-saved` to copy that profile's data into the isolated emulator profile before startup.
 
+### Sync SavedVariables with WoW (write-back)
+
+Add `--write-back` (or tick **Sync with WoW (write back on close)** under the SavedVariables profile in the desktop app) to share addon data with the game:
+
+- At startup, any WoW SavedVariables file that is newer than the emulator's copy is imported.
+- When the emulator closes (window closed, Ctrl+C in headless mode, or the end of `--ticks`), it fires `PLAYER_LOGOUT`, saves, and copies each enabled addon's account and character data back into the profile's `WTF\Account\...\SavedVariables` folders.
+- The replaced WoW file is kept as `<Addon>.lua.addonlab.bak`.
+- A WoW file that is newer than the emulator's copy (it changed in the game since) is left alone.
+- Nothing is written while that product's game client is running, because the client overwrites SavedVariables when it exits.
+
+Example, WoW Forever:
+
+```powershell
+dotnet run --project src\WoWAddonLab -- --product wowf --enable Bejewelcraft --profile account:MYACCOUNTNAME --write-back
+```
+
+WoW Forever (`_forever_`, product `wowf`) is detected like the other products.
+
 Use `--no-blizzard-ui` for isolated addon development, or `--blizzard-ui` to  force the official bootstrap regardless of the saved product setting.
 `--no-tact` also prevents Blizzard UI extraction, so pair it with
 `--no-blizzard-ui` for a fully local isolated run.

@@ -37,6 +37,7 @@ if (options.Headless)
     IReadOnlySet<string> disabledBlizzardModules =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     string savedVariablesDirectory;
+    Action? writeBack = null;
     if (options.AddonPath is not null)
     {
         addonPaths.Add(options.AddonPath);
@@ -130,6 +131,26 @@ if (options.Headless)
                     resolvedAddons,
                     savedVariablesDirectory);
                 Console.WriteLine($"Imported {imported} SavedVariables file(s) into the emulator profile.");
+            }
+            if (options.WriteBackSavedVariables || productSettings.WriteBackSavedVariables)
+            {
+                var synced = SavedVariablesProfiles.ImportCopies(
+                    profile,
+                    resolvedAddons,
+                    savedVariablesDirectory,
+                    onlyNewer: true);
+                if (synced > 0)
+                    Console.WriteLine($"Synced {synced} newer SavedVariables file(s) from WoW into the emulator profile.");
+                var emulatorDirectory = savedVariablesDirectory;
+                writeBack = () =>
+                {
+                    foreach (var message in SavedVariablesProfiles.WriteBack(
+                                 installation,
+                                 profile,
+                                 resolvedAddons,
+                                 emulatorDirectory))
+                        Console.WriteLine(message);
+                };
             }
         }
     }
@@ -338,6 +359,8 @@ if (options.Headless)
         for (var index = 0; index < ticks; index++)
             session.Tick(1.0 / 60.0);
         Console.WriteLine(JsonSerializer.Serialize(session.Status(), new JsonSerializerOptions { WriteIndented = true }));
+        session.Dispose();
+        writeBack?.Invoke();
         return;
     }
 
@@ -352,6 +375,9 @@ if (options.Headless)
         session.Tick(1.0 / 60.0);
         await Task.Delay(16, cancellation.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
+    // Session.Dispose fires PLAYER_LOGOUT and saves; only then is the emulator data final
+    session.Dispose();
+    writeBack?.Invoke();
     return;
 }
 
