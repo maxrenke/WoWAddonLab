@@ -381,5 +381,32 @@ if (options.Headless)
     return;
 }
 
+if (options.PlayAddon is not null && OperatingSystem.IsWindows())
+    ConsoleWindow.Hide(); // play mode is a game window, not a console tool
+
 using var application = new LabHost(options);
 application.Run();
+
+static partial class ConsoleWindow
+{
+    public static void Hide()
+    {
+        // Only a console this process owns (started from a shortcut), never the terminal it was run from
+        var processes = new uint[2];
+        if (GetConsoleProcessList(processes, 2) != 1)
+            return;
+        var handle = GetConsoleWindow();
+        if (handle != 0)
+            ShowWindow(handle, 0);
+    }
+
+    [System.Runtime.InteropServices.LibraryImport("kernel32.dll")]
+    private static partial uint GetConsoleProcessList([System.Runtime.InteropServices.Out] uint[] processes, uint count);
+
+    [System.Runtime.InteropServices.LibraryImport("kernel32.dll")]
+    private static partial nint GetConsoleWindow();
+
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static partial bool ShowWindow(nint handle, int command);
+}

@@ -1375,20 +1375,32 @@ public sealed class LuaRuntime : IDisposable
         RunTimers();
         WowPlayerScriptApi.Tick(this);
         WowWowLabsDataManagerApi.Tick(this);
-        TickAnimations(delta);
-        LuaBindings.TickSimpleModelSequences(this, delta);
-        TickStatusBars(delta);
-        TickCooldowns();
-        TickTooltips(delta);
-        WowDurationTextBindingApi.Tick(this, delta);
-        LuaBindings.TickColorSelects(this);
 
-        var frames = Ui.Objects.Values
-            .Where(value =>
-                value.AnimationGroup is null &&
-                value.Animation is null &&
-                value.ScriptReferences.ContainsKey("OnUpdate") &&
-                ShouldRunOnUpdate(value))
+        // One scan of every UI object collects the candidates for the steps below; each step still
+        // checks its own condition. Scanning ~60k objects once per step cost ~18 ms a frame.
+        var stepCandidates = new List<UiObject>();
+        var onUpdateCandidates = new List<UiObject>();
+        foreach (var value in Ui.Objects.Values)
+        {
+            if (value.AnimationGroup is not null || value.ModelResourceLoaded ||
+                value.StatusBar is not null || value.Cooldown is not null ||
+                value.Tooltip is not null || value.ColorSelect is not null)
+                stepCandidates.Add(value);
+            if (value.AnimationGroup is null && value.Animation is null &&
+                value.ScriptReferences.ContainsKey("OnUpdate"))
+                onUpdateCandidates.Add(value);
+        }
+
+        TickAnimations(delta, stepCandidates);
+        LuaBindings.TickSimpleModelSequences(this, delta, stepCandidates);
+        TickStatusBars(delta, stepCandidates);
+        TickCooldowns(stepCandidates);
+        TickTooltips(delta, stepCandidates);
+        WowDurationTextBindingApi.Tick(this, delta);
+        LuaBindings.TickColorSelects(this, stepCandidates);
+
+        var frames = onUpdateCandidates
+            .Where(ShouldRunOnUpdate)
             .ToArray();
         foreach (var frame in frames)
         {
@@ -1397,13 +1409,24 @@ public sealed class LuaRuntime : IDisposable
             InvokeScript(frame, "OnUpdate", delta);
         }
 
-        FlushPendingEditBoxTextChanges();
+        // Second scan: OnUpdate scripts may have queued edit box changes or created frames
+        var lateCandidates = new List<UiObject>();
+        foreach (var value in Ui.Objects.Values)
+        {
+            if (value.EditBoxTextChangedPending || value.Minimap is not null ||
+                value.FogOfWar is not null || value.UnitPosition is not null ||
+                value.ModelResourceLoaded ||
+                value.ObjectType.Length >= 12 && LuaBindings.IsMessageFrame(value))
+                lateCandidates.Add(value);
+        }
 
-        LuaBindings.TickMinimaps(this);
-        LuaBindings.TickFogOfWarFrames(this);
-        LuaBindings.TickUnitPositionFrames(this);
-        LuaBindings.TickMessageFrames(this, (float)delta);
-        LuaBindings.UpdateSimpleModelTransforms(this);
+        FlushPendingEditBoxTextChanges(lateCandidates);
+
+        LuaBindings.TickMinimaps(this, lateCandidates);
+        LuaBindings.TickFogOfWarFrames(this, lateCandidates);
+        LuaBindings.TickUnitPositionFrames(this, lateCandidates);
+        LuaBindings.TickMessageFrames(this, (float)delta, lateCandidates);
+        LuaBindings.UpdateSimpleModelTransforms(this, lateCandidates);
     }
 
     private bool ShouldRunOnUpdate(UiObject value) => value.OnUpdateMode switch
@@ -1419,9 +1442,9 @@ public sealed class LuaRuntime : IDisposable
         value.EditBoxTextChangedByUser = userInput;
     }
 
-    private void FlushPendingEditBoxTextChanges()
+    private void FlushPendingEditBoxTextChanges(IReadOnlyCollection<UiObject> objects)
     {
-        var editBoxes = Ui.Objects.Values
+        var editBoxes = objects
             .Where(value => value.EditBoxTextChangedPending)
             .ToArray();
         foreach (var value in editBoxes)
@@ -1438,9 +1461,9 @@ public sealed class LuaRuntime : IDisposable
         InvokeScript(value, "OnTextChanged", userInput);
     }
 
-    private void TickStatusBars(double delta)
+    private void TickStatusBars(double delta, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var value in Ui.Objects.Values)
+        foreach (var value in objects)
         {
             if (value.ObjectType.Equals("Slider", StringComparison.OrdinalIgnoreCase) ||
                 value.StatusBar is not { } statusBar ||
@@ -1477,9 +1500,9 @@ public sealed class LuaRuntime : IDisposable
         }
     }
 
-    private void TickCooldowns()
+    private void TickCooldowns(IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var value in Ui.Objects.Values.ToArray())
+        foreach (var value in objects.ToArray())
         {
             if (value.Cooldown is not { } cooldown)
                 continue;
@@ -1631,9 +1654,9 @@ public sealed class LuaRuntime : IDisposable
         return value.ToString(CultureInfo.InvariantCulture) + suffixes[unit];
     }
 
-    private void TickTooltips(double delta)
+    private void TickTooltips(double delta, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var value in Ui.Objects.Values)
+        foreach (var value in objects)
         {
             if (value.Tooltip is not { FadeRemaining: > 0 } tooltip)
                 continue;
@@ -3123,9 +3146,9 @@ public sealed class LuaRuntime : IDisposable
         }
     }
 
-    private void TickAnimations(double delta)
+    private void TickAnimations(double delta, IReadOnlyCollection<UiObject> objects)
     {
-        var groups = Ui.Objects.Values
+        var groups = objects
             .Where(value => value.AnimationGroup is { Playing: true })
             .ToArray();
         foreach (var groupObject in groups)

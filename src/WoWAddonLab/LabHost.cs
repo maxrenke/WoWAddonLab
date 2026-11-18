@@ -87,6 +87,13 @@ public sealed class LabHost : IDisposable
     private bool _step;
     private bool _toolsVisible = true;
     private bool _toolbarVisible = true;
+    private bool _menuVisible = true;
+    // Play mode (--play): one addon, no emulator chrome, the viewport cropped to the addon's frame
+    private bool _playPending;
+    private bool _playFrameSeen;
+    private bool _playWindowFitted;
+    private int _playCommandAttempts;
+    private const float PlayFrameMargin = 6;
     private bool _imguiWantsKeyboard;
     private bool _imguiWantsTextInput;
     private bool _viewportHovered;
@@ -171,10 +178,16 @@ public sealed class LabHost : IDisposable
         _gameTypeOverride = options.GameType;
         _remainingSmokeTicks = options.Ticks;
         var creationSpan = StartupTimeline.Begin("create application window object");
+        if (options.PlayAddon is not null)
+        {
+            _toolsVisible = false;
+            _toolbarVisible = false;
+            _menuVisible = false;
+        }
         var windowOptions = WindowOptions.Default with
         {
-            Title = "WoW Addon Lab",
-            Size = new Vector2D<int>(1700, 1050),
+            Title = options.PlayAddon ?? "WoW Addon Lab",
+            Size = options.PlayAddon is null ? new Vector2D<int>(1700, 1050) : new Vector2D<int>(1100, 800),
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -327,6 +340,7 @@ public sealed class LabHost : IDisposable
                 _session!.Tick(0);
             }
             SyncUiScaleSettingsFromRuntime();
+            ServicePlayMode();
         }
 
         if (_remainingSmokeTicks is { } ticks)
@@ -386,8 +400,48 @@ public sealed class LabHost : IDisposable
             _window.Close();
     }
 
+    private UiObject? PlayFrame() =>
+        _options.PlayFrame is { } name ? _session?.Ui.Find(name) : null;
+
+    private void ServicePlayMode()
+    {
+        if (_options.PlayAddon is not { } addon || _session is null)
+            return;
+        if (_playPending &&
+            _reloadTask is null &&
+            !_reloadRequested &&
+            _tactInitialization is null &&
+            !_reloadAfterTactInitialization &&
+            ++_playCommandAttempts > 10) // a few frames for startup events to settle
+        {
+            _session.Ui.IsolatedAddon = addon;
+            // Addons can register their slash command a few frames after load; retry for ~5 s
+            bool handled;
+            try
+            {
+                handled = _options.PlayCommand is not { } command ||
+                          _session.Lua.InvokeSlashCommand(command.StartsWith('/') ? command : "/" + command);
+            }
+            catch (Exception exception)
+            {
+                _session.Log.Error("play", exception.Message);
+                handled = true; // the command exists but failed; don't run it again
+            }
+            if (handled || _playCommandAttempts > 400)
+                _playPending = false;
+        }
+        if (PlayFrame() is not { } frame)
+            return;
+        if (_session.Ui.IsVisible(frame))
+            _playFrameSeen = true;
+        else if (_playFrameSeen)
+            _window.Close(); // the addon's window was closed: exit, which also writes the data back
+    }
+
     private void RenderMainMenu()
     {
+        if (!_menuVisible)
+            return;
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
         var menuBarOpen = ImGui.BeginMainMenuBar();
         ImGui.PopStyleVar();
@@ -762,10 +816,37 @@ public sealed class LabHost : IDisposable
                             ? Vector2.Zero
                             : ElasticCanvasPan(contentOrigin, available, _canvasSize));
 
+        var playCropped = false;
+        if (_options.PlayAddon is not null &&
+            PlayFrame() is { } playFrame &&
+            _session.Ui.IsVisible(playFrame) &&
+            _session.Ui.ResolveBounds(playFrame.Id) is { Width: > 0, Height: > 0 } bounds)
+        {
+            // Crop the simulated screen to the addon's frame (plus a small margin) and fill the window with it
+            var cropSize = new Vector2(bounds.Width, bounds.Height) + new Vector2(PlayFrameMargin * 2);
+            scale = MathF.Min(available.X / cropSize.X, available.Y / cropSize.Y);
+            _canvasScale = scale;
+            _canvasSize = new Vector2(_session.Ui.LogicalWidth * scale, _session.Ui.LogicalHeight * scale);
+            var cropTopLeft = new Vector2(
+                bounds.Left - PlayFrameMargin,
+                _session.Ui.LogicalHeight - bounds.Top - PlayFrameMargin) * scale;
+            _canvasOrigin = contentOrigin + (available - cropSize * scale) / 2 - cropTopLeft;
+            playCropped = true;
+            if (!_playWindowFitted)
+            {
+                _playWindowFitted = true;
+                var height = _window.Size.Y;
+                _window.Size = new Vector2D<int>(
+                    Math.Max(200, (int)MathF.Round(height * cropSize.X / cropSize.Y)),
+                    height);
+            }
+        }
+
         var drawList = ImGui.GetWindowDrawList();
         drawList.AddRectFilled(contentOrigin, contentOrigin + available, 0xFF050506);
         drawList.PushClipRect(_canvasOrigin, _canvasOrigin + _canvasSize, true);
-        RenderViewportGrid(drawList, _canvasOrigin, _canvasSize, scale);
+        if (!playCropped)
+            RenderViewportGrid(drawList, _canvasOrigin, _canvasSize, scale);
         var viewportHovered = ImGui.IsWindowHovered() && !_splitterHot;
         if (_loadingStatus is null)
         {
@@ -2569,6 +2650,8 @@ public sealed class LabHost : IDisposable
             _renderer = new WowUiRenderer(_textures, _addonFonts);
         AttachSimulation();
         _panelBrowser.Attach(_session);
+        _playPending = _options.PlayAddon is not null;
+        _playCommandAttempts = 0;
     }
 
     private void ConfigureFontAssetReader(ReloadPlan plan)

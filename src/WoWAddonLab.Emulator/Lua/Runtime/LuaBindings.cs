@@ -155,6 +155,29 @@ internal static class LuaBindings
 
     }
 
+    private static readonly System.Text.RegularExpressions.Regex AddonPathPattern =
+        new(@"[\\/]AddOns[\\/]([^\\/]+)[\\/]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    // Objects created after load (from a script or slash command) have no current addon; take it from the
+    // file of the Lua function that called CreateFrame.
+    private static string? CallingAddonName(lua_State state)
+    {
+        // The nearest caller in an addon file; C frames (pcall, securecall) and the emulator's own
+        // compatibility chunks (WowCompat.lua) are skipped
+        for (var level = 1; level <= 12; level++)
+        {
+            luaL_where(state, level);
+            var where = lua_tostring(state, -1);
+            lua_pop(state, 1);
+            if (string.IsNullOrEmpty(where))
+                continue;
+            var match = AddonPathPattern.Match(where);
+            if (match.Success)
+                return match.Groups[1].Value;
+        }
+        return null;
+    }
+
     public static UiObject CreateObject(
         LuaRuntime runtime,
         string objectType,
@@ -165,7 +188,7 @@ internal static class LuaBindings
     {
         name = ExpandParentObjectName(runtime, name, parent);
         var value = runtime.Ui.Create(objectType, name, parent?.Id, drawLayer, subLevel);
-        value.AddonName = runtime.CurrentAddonName;
+        value.AddonName = runtime.CurrentAddonName ?? CallingAddonName(runtime.State);
         var state = runtime.State;
         lua_newtable(state);
         lua_pushlightuserdata(state, (nuint)value.Id);
@@ -12868,9 +12891,9 @@ internal static class LuaBindings
         return value.Font;
     }
 
-    internal static void TickMessageFrames(LuaRuntime runtime, float elapsedSeconds)
+    internal static void TickMessageFrames(LuaRuntime runtime, float elapsedSeconds, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var value in runtime.Ui.Objects.Values
+        foreach (var value in objects
                      .Where(IsMessageFrame)
                      .ToArray())
         {
@@ -12934,7 +12957,7 @@ internal static class LuaBindings
         }
     }
 
-    private static bool IsMessageFrame(UiObject value) =>
+    internal static bool IsMessageFrame(UiObject value) =>
         value.ObjectType.EndsWith("MessageFrame", StringComparison.OrdinalIgnoreCase);
 
     private static IEnumerable<UiMessageFrameLine> ActiveMessageLines(UiObject value) =>
@@ -13943,9 +13966,9 @@ internal static class LuaBindings
         runtime.InvokeScript(owner, "OnColorSelect", rgb.X, rgb.Y, rgb.Z);
     }
 
-    internal static void TickColorSelects(LuaRuntime runtime)
+    internal static void TickColorSelects(LuaRuntime runtime, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var value in runtime.Ui.Objects.Values
+        foreach (var value in objects
                      .Where(value =>
                          value.ColorSelect is { Dirty: true } &&
                          runtime.Ui.IsVisible(value))
@@ -14292,9 +14315,9 @@ internal static class LuaBindings
         runtime.Ui.InvalidateLayout();
     }
 
-    internal static void TickFogOfWarFrames(LuaRuntime runtime)
+    internal static void TickFogOfWarFrames(LuaRuntime runtime, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var owner in runtime.Ui.Objects.Values
+        foreach (var owner in objects
                      .Where(value =>
                          value.FogOfWar is not null &&
                          runtime.Ui.IsVisible(value))
@@ -14427,9 +14450,9 @@ internal static class LuaBindings
         return true;
     }
 
-    internal static void TickUnitPositionFrames(LuaRuntime runtime)
+    internal static void TickUnitPositionFrames(LuaRuntime runtime, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var owner in runtime.Ui.Objects.Values
+        foreach (var owner in objects
                      .Where(value =>
                          value.UnitPosition is not null &&
                          runtime.Ui.IsVisible(value))
@@ -14442,9 +14465,9 @@ internal static class LuaBindings
 
     internal static void TickSimpleModelSequences(
         LuaRuntime runtime,
-        double elapsedSeconds)
+        double elapsedSeconds, IReadOnlyCollection<UiObject> objects)
     {
-        var loadedModels = runtime.Ui.Objects.Values
+        var loadedModels = objects
             .Where(value => value.ModelResourceLoaded)
             .ToArray();
         var elapsedMilliseconds = elapsedSeconds * 1000;
@@ -14593,9 +14616,9 @@ internal static class LuaBindings
         }
     }
 
-    internal static void UpdateSimpleModelTransforms(LuaRuntime runtime)
+    internal static void UpdateSimpleModelTransforms(LuaRuntime runtime, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var model in runtime.Ui.Objects.Values
+        foreach (var model in objects
                      .Where(value => value.ModelResourceLoaded)
                      .ToArray())
         {
@@ -14606,9 +14629,9 @@ internal static class LuaBindings
         }
     }
 
-    internal static void TickMinimaps(LuaRuntime runtime)
+    internal static void TickMinimaps(LuaRuntime runtime, IReadOnlyCollection<UiObject> objects)
     {
-        foreach (var minimap in runtime.Ui.Objects.Values
+        foreach (var minimap in objects
                      .Where(value => value.Minimap is not null)
                      .Select(value => value.Minimap!))
         {

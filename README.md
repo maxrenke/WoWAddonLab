@@ -55,6 +55,19 @@ dotnet run --project src\WoWAddonLab -- --product wowf --enable Bejewelcraft --p
 
 WoW Forever (`_forever_`, product `wowf`) is detected like the other products.
 
+### Play mode (one addon, no emulator UI)
+
+Run a single addon as if it were a standalone app, for example a game addon:
+
+```powershell
+WoWAddonLab.exe --product wowf --profile account:MYACCOUNTNAME --play Bejewelcraft --play-command /bjc --play-frame BejewelcraftFrame
+```
+
+- `--play <Addon>` enables only that addon, turns on write-back, and hides the menu, toolbar and tool panels.
+- `--play-command` runs the addon's slash command once the UI has loaded (to open its window).
+- `--play-frame` names the addon's main frame. The view is cropped to that frame, the window takes its shape, and closing the frame exits the app (which writes the SavedVariables back).
+- Only the addon's own frames (plus the game tooltip) are drawn and take mouse input. Blizzard's UI still runs underneath, so the addon's templates and APIs keep working.
+
 Use `--no-blizzard-ui` for isolated addon development, or `--blizzard-ui` to  force the official bootstrap regardless of the saved product setting.
 `--no-tact` also prevents Blizzard UI extraction, so pair it with
 `--no-blizzard-ui` for a fully local isolated run.

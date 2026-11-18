@@ -18,7 +18,10 @@ public sealed record CommandLineOptions(
     string? StartupJsonPath = null,
     bool ExitWhenReady = false,
     string? GameType = null,
-    bool WriteBackSavedVariables = false)
+    bool WriteBackSavedVariables = false,
+    string? PlayAddon = null,
+    string? PlayCommand = null,
+    string? PlayFrame = null)
 {
     public static bool WantsStartupReport(string[] arguments) =>
         arguments.Any(value => value is "--startup-report" or "--startup-json");
@@ -43,6 +46,9 @@ public sealed record CommandLineOptions(
         var exitWhenReady = false;
         string? gameType = null;
         var writeBackSavedVariables = false;
+        string? playAddon = null;
+        string? playCommand = null;
+        string? playFrame = null;
 
         for (var index = 0; index < arguments.Length; index++)
         {
@@ -61,6 +67,15 @@ public sealed record CommandLineOptions(
                     break;
                 case "--profile" when index + 1 < arguments.Length:
                     profile = arguments[++index];
+                    break;
+                case "--play" when index + 1 < arguments.Length:
+                    playAddon = arguments[++index];
+                    break;
+                case "--play-command" when index + 1 < arguments.Length:
+                    playCommand = arguments[++index];
+                    break;
+                case "--play-frame" when index + 1 < arguments.Length:
+                    playFrame = arguments[++index];
                     break;
                 case "--write-back":
                     writeBackSavedVariables = true;
@@ -110,6 +125,13 @@ public sealed record CommandLineOptions(
             }
         }
 
+        if (playAddon is not null)
+        {
+            // Play mode: only this addon, synced with WoW
+            enabledAddons.Add(playAddon);
+            writeBackSavedVariables = true;
+        }
+
         return new CommandLineOptions(
             addonPath is null ? null : Path.GetFullPath(addonPath),
             product,
@@ -128,6 +150,9 @@ public sealed record CommandLineOptions(
             startupJsonPath,
             exitWhenReady,
             gameType,
-            writeBackSavedVariables);
+            writeBackSavedVariables,
+            playAddon,
+            playCommand,
+            playFrame);
     }
 }

@@ -940,6 +940,30 @@ public sealed class UiSystem
         return resolved;
     }
 
+    /// <summary>
+    /// When set, only this addon's frames (and the frames named in <see cref="IsolationAllowedNames"/>) are drawn
+    /// and receive the mouse. Lua still sees every frame as it is; this only changes what the viewport shows.
+    /// </summary>
+    public string? IsolatedAddon { get; set; }
+
+    public HashSet<string> IsolationAllowedNames { get; } =
+        new(StringComparer.Ordinal) { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" };
+
+    private bool PassesIsolation(UiObject value)
+    {
+        if (IsolatedAddon is not { } addon)
+            return true;
+        for (var current = value; ;)
+        {
+            if (string.Equals(current.AddonName, addon, StringComparison.OrdinalIgnoreCase) ||
+                current.Name is { } name && IsolationAllowedNames.Contains(name))
+                return true;
+            if (current.ParentId is not { } parentId || Find(parentId) is not { } parent)
+                return false;
+            current = parent;
+        }
+    }
+
     public IEnumerable<UiObject> RenderOrder() =>
         OrderedObjects(static value => value.DrawLayer);
 
@@ -953,6 +977,7 @@ public sealed class UiSystem
         _objects.Values
             .Where(value =>
                 IsVisible(value) &&
+                PassesIsolation(value) &&
                 HasResolvedRect(value) &&
                 IsDrawLayerVisible(value))
             .OrderBy(value => StrataOrder.GetValueOrDefault(EffectiveFrameStrata(value), 3))
@@ -1609,6 +1634,7 @@ public sealed class UiSystem
             value.Id,
             value.Name,
             value.ObjectType,
+            value.AddonName,
             value.ParentId,
             value.Children,
             value.Shown,
