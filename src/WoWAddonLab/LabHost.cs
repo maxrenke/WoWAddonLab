@@ -46,6 +46,7 @@ public sealed class LabHost : IDisposable
     private readonly PanelBrowser _panelBrowser = new();
     private WoWAddonLabSettings _settings = new();
     private TactAssetSource? _tact;
+    private readonly Audio.SoundPlayer _audio = new();
     private TactAtlasCatalog? _atlasCatalog;
     private TactDyeColorCatalog? _dyeColorCatalog;
     private TactGlobalColorCatalog? _globalColorCatalog;
@@ -215,9 +216,42 @@ public sealed class LabHost : IDisposable
         _viewportCapture.Dispose();
         _automation?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _session?.Dispose();
+        _audio.Dispose();
         WriteBackSavedVariablesOnClose();
         DisposeGraphics();
         _window.Dispose();
+    }
+
+    // Play mode: the window and taskbar take the addon's TOC IconTexture (TGA/PNG only).
+    private void ApplyPlayIcon()
+    {
+        if (_options.PlayAddon is not { } addon || _installations.Count == 0)
+            return;
+        try
+        {
+            var addonDirectory = Path.Combine(_installations[_selectedInstallation].ProductPath, "Interface", "AddOns", addon);
+            var iconTexture = Directory.EnumerateFiles(addonDirectory, "*.toc")
+                .SelectMany(File.ReadLines)
+                .Select(line => line.Trim())
+                .FirstOrDefault(line => line.StartsWith("## IconTexture:", StringComparison.OrdinalIgnoreCase))?
+                ["## IconTexture:".Length..].Trim();
+            if (string.IsNullOrEmpty(iconTexture))
+                return;
+            var basePath = Path.Combine(_installations[_selectedInstallation].ProductPath, iconTexture.Replace('/', '\\'));
+            var path = new[] { "", ".tga", ".png" }.Select(extension => basePath + extension)
+                .FirstOrDefault(candidate => File.Exists(candidate) && !candidate.EndsWith(".blp", StringComparison.OrdinalIgnoreCase));
+            if (path is null)
+                return;
+            using var image = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(path);
+            var pixels = new byte[image.Width * image.Height * 4];
+            image.CopyPixelDataTo(pixels);
+            var icon = new Silk.NET.Core.RawImage(image.Width, image.Height, pixels);
+            _window.SetWindowIcon(ref icon);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Play icon: {exception.Message}");
+        }
     }
 
     private void OnLoad()
@@ -248,6 +282,7 @@ public sealed class LabHost : IDisposable
         using (StartupTimeline.Begin("load emulator settings"))
             _settings = _settingsStore.Load();
         _selectedInstallation = SelectInitialInstallation();
+        ApplyPlayIcon();
         using (StartupTimeline.Begin("create emulator session (Lua runtime construction)"))
             _session = new EmulatorSession(
                 _options.LogicalWidth,
@@ -341,6 +376,17 @@ public sealed class LabHost : IDisposable
             }
             SyncUiScaleSettingsFromRuntime();
             ServicePlayMode();
+            var installation = _installations.Count > 0 ? _installations[_selectedInstallation] : null;
+            _audio.Service(
+                _session.Lua.Sound,
+                installation?.ProductPath,
+                _tact is { IsInitialized: true } tact ? tact : null,
+                installation?.Version);
+            if (_audio.Error is { } audioError)
+            {
+                _session.Log.Error("audio", audioError);
+                _audio.Error = null;
+            }
         }
 
         if (_remainingSmokeTicks is { } ticks)

@@ -109,6 +109,7 @@ internal sealed class WowSoundApi : LuaApiModule
         var forceNoDuplicates = OptionalBoolean(state, 3);
         var runFinishCallback = OptionalBoolean(state, 4);
         var overridePriority = OptionalInt32(state, 5, PlaySoundUsage);
+        var volumeOverride = lua_isnumber(state, 6) != 0 ? (float)lua_tonumber(state, 6) : 1f;
 
         var sound = runtime.Sound;
         if (!CanPlay(sound) || soundKitId <= 0 ||
@@ -127,7 +128,8 @@ internal sealed class WowSoundApi : LuaApiModule
             Channel = UiSoundSubTypeName(uiSoundSubType),
             ForceNoDuplicates = forceNoDuplicates,
             RunFinishCallback = runFinishCallback,
-            OverridePriority = overridePriority
+            OverridePriority = overridePriority,
+            ScaledVolume = volumeOverride
         };
         RecordPlayback(sound, playback);
         PushAcceptedPlayback(state, playback.Handle);

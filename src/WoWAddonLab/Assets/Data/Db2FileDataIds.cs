@@ -28,6 +28,7 @@ public static class Db2FileDataIds
         ["dbfilesclient/journaltier.db2"] = 1349056,
         ["dbfilesclient/journaltierxinstance.db2"] = 1285009,
         ["dbfilesclient/itemclass.db2"] = 1140189,
+        ["dbfilesclient/soundkitentry.db2"] = 1237435,
         ["dbfilesclient/item.db2"] = 841626,
         ["dbfilesclient/itemappearance.db2"] = 982462,
         ["dbfilesclient/itemmodifiedappearance.db2"] = 982457,
