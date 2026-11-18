@@ -17,7 +17,8 @@ internal sealed class SoundPlayer : IDisposable
     private readonly unsafe Device* _device;
     private readonly unsafe Context* _context;
     private readonly Dictionary<int, (uint Source, uint Buffer)> _voices = [];
-    private readonly Dictionary<string, Pcm?> _decoded = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Task<Pcm?>> _decoded = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<(WowSoundPlayback Request, Task<Pcm?>? Decode, long Deadline)> _waiting = [];
     private Task<Dictionary<int, uint[]>>? _soundKits;
     private TactAssetSource? _soundKitSource;
 
@@ -56,12 +57,19 @@ internal sealed class SoundPlayer : IDisposable
         foreach (var stop in stops)
             Release(stop.Handle);
 
+        // Decoding runs in the background; a sound waits here (a few frames, first play only) until it is ready.
+        var now = Environment.TickCount64;
         foreach (var request in requests)
+            _waiting.Add((request, Resolve(request, productPath, tact, build), now + 1000));
+
+        foreach (var entry in _waiting.ToArray())
         {
-            if (_voices.Count >= MaxVoices)
-                break;
-            var pcm = Resolve(request, productPath, tact, build);
-            if (pcm is null)
+            var (request, decode, deadline) = entry;
+            if (decode is not null && !decode.IsCompleted && now < deadline)
+                continue;
+            _waiting.Remove(entry);
+            var pcm = decode is { IsCompletedSuccessfully: true } ? decode.Result : null;
+            if (pcm is null || _voices.Count >= MaxVoices || !sound.ActivePlaybacks.ContainsKey(request.Handle))
             {
                 sound.ActivePlaybacks.Remove(request.Handle);
                 continue;
@@ -96,7 +104,7 @@ internal sealed class SoundPlayer : IDisposable
         _al.DeleteBuffer(voice.Buffer);
     }
 
-    private Pcm? Resolve(WowSoundPlayback request, string? productPath, TactAssetSource? tact, string? build)
+    private Task<Pcm?>? Resolve(WowSoundPlayback request, string? productPath, TactAssetSource? tact, string? build)
     {
         if (request.FilePath is { Length: > 0 } path)
         {
@@ -120,7 +128,7 @@ internal sealed class SoundPlayer : IDisposable
         return null;
     }
 
-    private Pcm? FromTact(TactAssetSource tact, uint fileDataId) =>
+    private Task<Pcm?> FromTact(TactAssetSource tact, uint fileDataId) =>
         Decode("fdid:" + fileDataId, () => tact.Read(fileDataId));
 
     // SoundKitEntry is large, so it loads in the background; kits played before it is ready stay silent.
@@ -140,22 +148,24 @@ internal sealed class SoundPlayer : IDisposable
         return _soundKits.IsCompletedSuccessfully ? _soundKits.Result : null;
     }
 
-    private Pcm? Decode(string key, Func<byte[]?> read)
+    private Task<Pcm?> Decode(string key, Func<byte[]?> read)
     {
         if (_decoded.TryGetValue(key, out var cached))
             return cached;
-        Pcm? pcm = null;
-        try
+        var task = Task.Run(() =>
         {
-            if (read() is { Length: > 4 } bytes)
-                pcm = DecodeBytes(bytes);
-        }
-        catch (Exception exception)
-        {
-            Error = $"{key}: {exception.Message}";
-        }
-        _decoded[key] = pcm;
-        return pcm;
+            try
+            {
+                return read() is { Length: > 4 } bytes ? DecodeBytes(bytes) : null;
+            }
+            catch (Exception exception)
+            {
+                Error = $"{key}: {exception.Message}";
+                return null;
+            }
+        });
+        _decoded[key] = task;
+        return task;
     }
 
     private static Pcm? DecodeBytes(byte[] bytes)

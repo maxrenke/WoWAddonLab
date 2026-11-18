@@ -5,6 +5,10 @@ namespace WoWAddonLab.Emulator.UI;
 
 public sealed class UiObject
 {
+    // Bumped whenever an object is created or removed or gains/loses state that LuaRuntime.Tick
+    // scans for (OnUpdate scripts, animations, status bars, ...), so Tick can reuse its candidate lists.
+    public static int TickIndexVersion;
+
     public required int Id { get; init; }
     public required string ObjectType { get; init; }
     public string? Name { get; init; }
@@ -172,7 +176,8 @@ public sealed class UiObject
     public bool FontFixedColor { get; set; }
     public bool HasFrameAlphaGradient { get; set; }
     public Vector2[] FrameAlphaGradientEdges { get; } = new Vector2[2];
-    public UiTooltipState? Tooltip { get; set; }
+    private UiTooltipState? _tooltip;
+    public UiTooltipState? Tooltip { get => _tooltip; set { if (_tooltip == value) return; _tooltip = value; TickIndexVersion++; } }
     public Dictionary<string, UiFontState> HtmlFonts { get; } =
         new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, int> HtmlFontObjectIds { get; } =
@@ -252,16 +257,24 @@ public sealed class UiObject
     public bool ShouldButtonPassThrough(string? button) =>
         NormalizeMouseButtonName(button) is { } normalized &&
         PassThroughButtons.Contains(normalized);
-    public UiStatusBarState? StatusBar { get; set; }
-    public UiCooldownState? Cooldown { get; set; }
-    public UiColorSelectState? ColorSelect { get; set; }
+    private UiStatusBarState? _statusBar;
+    public UiStatusBarState? StatusBar { get => _statusBar; set { if (_statusBar == value) return; _statusBar = value; TickIndexVersion++; } }
+    private UiCooldownState? _cooldown;
+    public UiCooldownState? Cooldown { get => _cooldown; set { if (_cooldown == value) return; _cooldown = value; TickIndexVersion++; } }
+    private UiColorSelectState? _colorSelect;
+    public UiColorSelectState? ColorSelect { get => _colorSelect; set { if (_colorSelect == value) return; _colorSelect = value; TickIndexVersion++; } }
     public UiBlobState? Blob { get; set; }
-    public UiMinimapState? Minimap { get; set; }
-    public UiFogOfWarState? FogOfWar { get; set; }
-    public UiUnitPositionState? UnitPosition { get; set; }
+    private UiMinimapState? _minimap;
+    public UiMinimapState? Minimap { get => _minimap; set { if (_minimap == value) return; _minimap = value; TickIndexVersion++; } }
+    private UiFogOfWarState? _fogOfWar;
+    public UiFogOfWarState? FogOfWar { get => _fogOfWar; set { if (_fogOfWar == value) return; _fogOfWar = value; TickIndexVersion++; } }
+    private UiUnitPositionState? _unitPosition;
+    public UiUnitPositionState? UnitPosition { get => _unitPosition; set { if (_unitPosition == value) return; _unitPosition = value; TickIndexVersion++; } }
     public UiMovieState? Movie { get; set; }
-    public UiAnimationGroupState? AnimationGroup { get; set; }
-    public UiAnimationState? Animation { get; set; }
+    private UiAnimationGroupState? _animationGroup;
+    public UiAnimationGroupState? AnimationGroup { get => _animationGroup; set { if (_animationGroup == value) return; _animationGroup = value; TickIndexVersion++; } }
+    private UiAnimationState? _animation;
+    public UiAnimationState? Animation { get => _animation; set { if (_animation == value) return; _animation = value; TickIndexVersion++; } }
     public UiControlPointState? ControlPoint { get; set; }
     public ModelSceneState? ModelScene { get; set; }
     public uint? ModelFileDataId { get; set; }
@@ -279,7 +292,8 @@ public sealed class UiObject
     public bool ModelBarberShopAlternateForm { get; set; }
     public bool ModelUseNativeForm { get; set; } = true;
     public bool ModelNoMip { get; set; }
-    public bool ModelResourceLoaded { get; set; }
+    private bool _modelResourceLoaded;
+    public bool ModelResourceLoaded { get => _modelResourceLoaded; set { if (_modelResourceLoaded == value) return; _modelResourceLoaded = value; TickIndexVersion++; } }
     public bool ModelHasAttachmentPoints { get; set; }
     public uint ModelSequenceId { get; set; }
     public int ModelSequenceTimeOffset { get; set; }
@@ -473,7 +487,12 @@ public sealed class UiObject
     public int? ThumbTextureId { get; set; }
     public string? DisabledFontObjectName { get; set; }
     public string TextValue { get; set; } = string.Empty;
-    public bool EditBoxTextChangedPending { get; set; }
+    private bool _editBoxTextChangedPending;
+    public bool EditBoxTextChangedPending
+    {
+        get => _editBoxTextChangedPending;
+        set { if (value && !_editBoxTextChangedPending) TickIndexVersion++; _editBoxTextChangedPending = value; }
+    }
     public bool EditBoxTextChangedByUser { get; set; }
     public string? BrowserPage { get; set; }
     public uint? BrowserTicketIndex { get; set; }

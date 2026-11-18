@@ -35,16 +35,26 @@ public sealed class AddonFontCache : IDisposable
 
     public RenderFont Select(string fontPath, float pixelSize)
     {
-        var selectedPixelSize = Math.Clamp(
-            MathF.Truncate(MathF.Max(2, pixelSize) + 0.5f),
-            2,
-            256);
+        var size = Math.Clamp(MathF.Truncate(MathF.Max(2, pixelSize) + 0.5f), 2, 256);
+        // Each new size rebuilds the whole font atlas, so sizes above 16px snap up to a ladder
+        // (16-31 by 2, 32-63 by 8, then 64, 96, 128, ...); the renderer scales glyphs to the exact size.
+        // Animated text otherwise asked for every size in between.
+        var step = size switch { < 16 => 1, < 32 => 2, < 64 => 8, _ => 32 };
+        var selectedPixelSize = MathF.Min(256, MathF.Ceiling(size / step) * step);
         var key = (Normalize(fontPath), selectedPixelSize);
         if (_fonts.TryGetValue(key, out var font))
             return font;
         if (!_missing.Contains(key))
             _pending.Add(key);
-        return _fallback.Select(pixelSize);
+        // Until the atlas is rebuilt, draw with the closest size already cached for this font.
+        RenderFont? nearest = null;
+        foreach (var (cachedKey, cached) in _fonts)
+        {
+            if (cachedKey.Path == key.Item1 &&
+                (nearest is null || MathF.Abs(cachedKey.Size - size) < MathF.Abs(nearest.PixelSize - size)))
+                nearest = cached;
+        }
+        return nearest ?? _fallback.Select(pixelSize);
     }
 
     public unsafe void ProcessPending()
@@ -86,6 +96,8 @@ public sealed class AddonFontCache : IDisposable
             try
             {
                 config.GlyphOffset = glyphOffset;
+                if (glyphSize >= 32)
+                    config.OversampleH = 1; // large glyphs don't need it, and it halves the rebuild time
                 handle = ImGui.GetIO().Fonts.AddFontFromFileTTF(
                     extractedPath,
                     glyphSize,

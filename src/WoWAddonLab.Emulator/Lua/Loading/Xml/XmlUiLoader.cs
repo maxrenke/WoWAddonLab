@@ -1882,6 +1882,7 @@ internal sealed class XmlUiLoader
         foreach (var reference in value.ScriptReferences.Values)
             _runtime.ReleaseReference(reference);
         value.ScriptReferences.Clear();
+        UiObject.TickIndexVersion++;
     }
 
     internal bool TryGetScript(UiObject value, string scriptName, out int reference)
@@ -1911,6 +1912,7 @@ internal sealed class XmlUiLoader
     {
         if (value.ScriptReferences.Remove(scriptName, out var previousChain))
             _runtime.ReleaseReference(previousChain);
+        UiObject.TickIndexVersion++;
         _runtime.ReleaseReference(chain.ExposedReference);
         chain.ExposedReference = 0;
         var exposed = chain.Normal.Concat(chain.Hooks).ToArray();

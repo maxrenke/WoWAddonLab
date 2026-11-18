@@ -92,6 +92,7 @@ public sealed class LabHost : IDisposable
     // Play mode (--play): one addon, no emulator chrome, the viewport cropped to the addon's frame
     private bool _playPending;
     private bool _playFrameSeen;
+    private bool _playFrameShowTried;
     private bool _playWindowFitted;
     private int _playCommandAttempts;
     private const float PlayFrameMargin = 6;
@@ -217,6 +218,7 @@ public sealed class LabHost : IDisposable
         _automation?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _session?.Dispose();
         _audio.Dispose();
+        FrameProfiler.Write();
         WriteBackSavedVariablesOnClose();
         DisposeGraphics();
         _window.Dispose();
@@ -352,9 +354,24 @@ public sealed class LabHost : IDisposable
 
     private void OnUpdate(double deltaSeconds)
     {
+        var updateStart = FrameProfiler.Start();
+        try
+        {
+            UpdateFrame(deltaSeconds);
+        }
+        finally
+        {
+            FrameProfiler.Stop("update", updateStart);
+        }
+    }
+
+    private void UpdateFrame(double deltaSeconds)
+    {
         if (_fontAtlasCanMutate)
         {
+            var fontStart = FrameProfiler.Start();
             _addonFonts?.ProcessPending();
+            FrameProfiler.Stop("fonts", fontStart);
             _fontAtlasCanMutate = false;
         }
         _imgui!.Update((float)deltaSeconds);
@@ -367,7 +384,9 @@ public sealed class LabHost : IDisposable
         {
             if (!_paused || _step)
             {
+                var tickStart = FrameProfiler.Start();
                 _session!.Tick(deltaSeconds);
+                FrameProfiler.Stop("tick", tickStart);
                 _step = false;
             }
             else
@@ -376,12 +395,14 @@ public sealed class LabHost : IDisposable
             }
             SyncUiScaleSettingsFromRuntime();
             ServicePlayMode();
+            var audioStart = FrameProfiler.Start();
             var installation = _installations.Count > 0 ? _installations[_selectedInstallation] : null;
             _audio.Service(
                 _session.Lua.Sound,
                 installation?.ProductPath,
                 _tact is { IsInitialized: true } tact ? tact : null,
                 installation?.Version);
+            FrameProfiler.Stop("audio", audioStart);
             if (_audio.Error is { } audioError)
             {
                 _session.Log.Error("audio", audioError);
@@ -399,6 +420,7 @@ public sealed class LabHost : IDisposable
 
     private void OnRender(double deltaSeconds)
     {
+        var renderStart = FrameProfiler.Start();
         _gl!.Clear(ClearBufferMask.ColorBufferBit);
         CompleteTactInitialization();
         ServicePendingReload();
@@ -407,13 +429,17 @@ public sealed class LabHost : IDisposable
         RenderToolbar();
         UpdateWorkspaceLayout();
         UpdateSplitterInteraction();
+        var viewportStart = FrameProfiler.Start();
         RenderAddonViewport();
+        FrameProfiler.Stop("viewport", viewportStart);
         RenderToolWorkspace();
         if (!SessionBusy)
             _simulationWindow?.Render();
             _panelBrowser.Render();
 
+        var imguiStart = FrameProfiler.Start();
         _imgui!.Render();
+        FrameProfiler.Stop("imgui", imguiStart);
         _viewportCapture.ServicePending(
             _gl,
             _canvasOrigin,
@@ -422,6 +448,8 @@ public sealed class LabHost : IDisposable
             _window.FramebufferSize);
         _fontAtlasCanMutate = true;
         TryCompleteStartupReport();
+        FrameProfiler.Stop("render", renderStart);
+        FrameProfiler.EndFrame();
     }
 
     private void TryCompleteStartupReport()
@@ -478,6 +506,20 @@ public sealed class LabHost : IDisposable
         }
         if (PlayFrame() is not { } frame)
             return;
+        if (!_playPending && !_playFrameSeen && !_playFrameShowTried && !_session.Ui.IsVisible(frame))
+        {
+            // The command ran (or there was none) and the addon kept its window hidden, e.g. a toggle
+            // that remembered being closed: show the frame directly, once.
+            _playFrameShowTried = true;
+            try
+            {
+                _session.Lua.Evaluate($"_G[\"{_options.PlayFrame}\"]:Show()");
+            }
+            catch (Exception exception)
+            {
+                _session.Log.Error("play", exception.Message);
+            }
+        }
         if (_session.Ui.IsVisible(frame))
             _playFrameSeen = true;
         else if (_playFrameSeen)

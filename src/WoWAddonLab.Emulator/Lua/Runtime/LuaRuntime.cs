@@ -52,6 +52,11 @@ public sealed class LuaRuntime : IDisposable
     private bool _disposed;
     private bool _flushingSizeChanged;
     private long _nextSoundHandle;
+    private readonly List<UiObject> _stepCandidates = [];
+    private readonly List<UiObject> _onUpdateCandidates = [];
+    private readonly List<UiObject> _lateCandidates = [];
+    private int _stepScanVersion = -1;
+    private int _lateScanVersion = -1;
     private long _nextTimerId;
 
     public LuaRuntime(
@@ -1377,19 +1382,26 @@ public sealed class LuaRuntime : IDisposable
         WowWowLabsDataManagerApi.Tick(this);
 
         // One scan of every UI object collects the candidates for the steps below; each step still
-        // checks its own condition. Scanning ~60k objects once per step cost ~18 ms a frame.
-        var stepCandidates = new List<UiObject>();
-        var onUpdateCandidates = new List<UiObject>();
-        foreach (var value in Ui.Objects.Values)
+        // checks its own condition. The scan (~60k objects) is redone only when UiObject.TickIndexVersion
+        // says an object was added or removed or changed one of the fields it looks at.
+        if (_stepScanVersion != UiObject.TickIndexVersion)
         {
-            if (value.AnimationGroup is not null || value.ModelResourceLoaded ||
-                value.StatusBar is not null || value.Cooldown is not null ||
-                value.Tooltip is not null || value.ColorSelect is not null)
-                stepCandidates.Add(value);
-            if (value.AnimationGroup is null && value.Animation is null &&
-                value.ScriptReferences.ContainsKey("OnUpdate"))
-                onUpdateCandidates.Add(value);
+            _stepScanVersion = UiObject.TickIndexVersion;
+            _stepCandidates.Clear();
+            _onUpdateCandidates.Clear();
+            foreach (var value in Ui.Objects.Values)
+            {
+                if (value.AnimationGroup is not null || value.ModelResourceLoaded ||
+                    value.StatusBar is not null || value.Cooldown is not null ||
+                    value.Tooltip is not null || value.ColorSelect is not null)
+                    _stepCandidates.Add(value);
+                if (value.AnimationGroup is null && value.Animation is null &&
+                    value.ScriptReferences.ContainsKey("OnUpdate"))
+                    _onUpdateCandidates.Add(value);
+            }
         }
+        var stepCandidates = _stepCandidates.ToArray();
+        var onUpdateCandidates = _onUpdateCandidates;
 
         TickAnimations(delta, stepCandidates);
         LuaBindings.TickSimpleModelSequences(this, delta, stepCandidates);
@@ -1410,15 +1422,20 @@ public sealed class LuaRuntime : IDisposable
         }
 
         // Second scan: OnUpdate scripts may have queued edit box changes or created frames
-        var lateCandidates = new List<UiObject>();
-        foreach (var value in Ui.Objects.Values)
+        if (_lateScanVersion != UiObject.TickIndexVersion)
         {
-            if (value.EditBoxTextChangedPending || value.Minimap is not null ||
-                value.FogOfWar is not null || value.UnitPosition is not null ||
-                value.ModelResourceLoaded ||
-                value.ObjectType.Length >= 12 && LuaBindings.IsMessageFrame(value))
-                lateCandidates.Add(value);
+            _lateScanVersion = UiObject.TickIndexVersion;
+            _lateCandidates.Clear();
+            foreach (var value in Ui.Objects.Values)
+            {
+                if (value.EditBoxTextChangedPending || value.Minimap is not null ||
+                    value.FogOfWar is not null || value.UnitPosition is not null ||
+                    value.ModelResourceLoaded ||
+                    value.ObjectType.Length >= 12 && LuaBindings.IsMessageFrame(value))
+                    _lateCandidates.Add(value);
+            }
         }
+        var lateCandidates = _lateCandidates.ToArray();
 
         FlushPendingEditBoxTextChanges(lateCandidates);
 

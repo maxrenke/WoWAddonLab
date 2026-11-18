@@ -31,6 +31,8 @@ public sealed class UiSystem
     };
 
     private readonly Dictionary<int, UiObject> _objects = [];
+    // Objects with no parent (or a missing one): the starting points for walking the shown tree.
+    private readonly HashSet<int> _rootIds = [];
     private readonly Dictionary<string, int> _names = new(StringComparer.Ordinal);
     private readonly Dictionary<int, UiRect> _layoutCache = [];
     private readonly HashSet<int> _resolvedRectIds = [];
@@ -360,6 +362,9 @@ public sealed class UiSystem
         }
 
         _objects.Add(id, objectValue);
+        UiObject.TickIndexVersion++;
+        if (parentId is not { } rootParent || !_objects.ContainsKey(rootParent))
+            _rootIds.Add(id);
         if (name is not null)
             _names[name] = id;
         if (parentId is { } parent && _objects.TryGetValue(parent, out var parentObject))
@@ -436,6 +441,8 @@ public sealed class UiSystem
             _names.Remove(name);
         }
         _objects.Remove(objectId);
+        UiObject.TickIndexVersion++;
+        _rootIds.Remove(objectId);
         _layoutCache.Remove(objectId);
         _mouseMotionFocusIds.Remove(objectId);
         if (HoveredObjectId == objectId)
@@ -515,6 +522,10 @@ public sealed class UiSystem
         if (value.ParentId is { } oldParent && Find(oldParent) is { } old)
             old.Children.Remove(value.Id);
         value.ParentId = parentId;
+        if (parentId is { } rootParent && _objects.ContainsKey(rootParent))
+            _rootIds.Remove(value.Id);
+        else
+            _rootIds.Add(value.Id);
         if (parentId is { } newParent && Find(newParent) is { } next && !next.Children.Contains(value.Id))
         {
             next.Children.Add(value.Id);
@@ -972,11 +983,31 @@ public sealed class UiSystem
             ? value.ModelDrawLayer
             : value.DrawLayer);
 
-    private IEnumerable<UiObject> OrderedObjects(
-        Func<UiObject, string> drawLayerSelector) =>
-        _objects.Values
+    // Same set as filtering every object with IsVisible, but only walks the branches that are shown.
+    private List<UiObject> VisibleObjects()
+    {
+        var result = new List<UiObject>();
+        var pending = new Stack<UiObject>();
+        foreach (var id in _rootIds)
+        {
+            if (_objects.TryGetValue(id, out var root) && root.Shown)
+                pending.Push(root);
+        }
+        while (pending.TryPop(out var value))
+        {
+            result.Add(value);
+            foreach (var childId in value.Children)
+            {
+                if (_objects.TryGetValue(childId, out var child) && child.Shown && child.ParentId == value.Id)
+                    pending.Push(child);
+            }
+        }
+        return result;
+    }
+
+    private IEnumerable<UiObject> OrderedObjects(        Func<UiObject, string> drawLayerSelector) =>
+        VisibleObjects()
             .Where(value =>
-                IsVisible(value) &&
                 PassesIsolation(value) &&
                 HasResolvedRect(value) &&
                 IsDrawLayerVisible(value))
